@@ -115,10 +115,13 @@ int main(int argc, char *argv[], char *envp[]){
         fgets(buffer, BUFFER_SIZE, stdin); /* Read in command line */
               /* Parse the command line into args */
         parse_args(buffer, args, ARR_SIZE, &nargs); 
- 
+	
+	for(int i=0;args[i]!=NULL;i++) {
+		printf("The command is: %s\n",args[i]);
+	}
         if (nargs==0) continue; /* Nothing entered so prompt again */
         if (!strcmp(args[0], "exit" )) exit(0);       
-
+	
         pid = fork();
 
         if (pid){  /* The parent */
