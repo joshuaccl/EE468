@@ -122,10 +122,11 @@ int main(int argc, char *argv[], char *envp[]){
 		if (!strcmp(args[0], "exit" )) exit(0);       
 
 		pipeSeen = 0;
-		
+		#ifdef DEBUG		
 		for(i = 0; args[i]!=NULL;i++){
 			printf("The command is: %s\n",args[i]);
-		} 	
+		}
+		#endif 	
 	
 		for (  i = 0 ; args[i]!=NULL ; i++ ) {
 			
@@ -144,6 +145,9 @@ int main(int argc, char *argv[], char *envp[]){
 						exit(127);
 					}
 				}
+
+				wait(ret_status);				
+
 				if( fork() == 0) { // this is the child
 					close(stdin);
 					close(p[1]);
@@ -159,7 +163,7 @@ int main(int argc, char *argv[], char *envp[]){
 				wait(ret_status);
 			} 
 				
-			}
+		}
 		if(!pipeSeen) {
 			if( fork() == 0) { // this is the child
 			
