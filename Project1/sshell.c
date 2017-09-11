@@ -14,7 +14,7 @@
 #define BUFFER_SIZE 80
 #define ARR_SIZE 80
 
-// #define DEBUG 1  /* In case you want debug messages */
+ #define DEBUG 1  /* In case you want debug messages */
 
 void parse_args(char *buffer, char** args, 
 		size_t args_size, size_t *nargs)
@@ -105,12 +105,18 @@ void parse_args(char *buffer, char** args,
 int main(int argc, char *argv[], char *envp[]){
 	char buffer[BUFFER_SIZE];
 	char *args[ARR_SIZE];
+	char *executable[ARR_SIZE];
 
 	int *ret_status;
 	size_t nargs;
 	pid_t pid;
 	int p[2];
-	int pipeSeen, i;
+	int p2[2];
+	int pipe_seen, i, j, k;
+	int pipe_num;
+	int pipe_location[8];
+
+	
 
 	while(1){
 		printf("ee468>> "); /* Prompt */
@@ -121,7 +127,8 @@ int main(int argc, char *argv[], char *envp[]){
 		if (nargs==0) continue; /* Nothing entered so prompt again */
 		if (!strcmp(args[0], "exit" )) exit(0);       
 
-		pipeSeen = 0;
+		pipe_num = 0;
+		pipe_seen = 0;
 		#ifdef DEBUG		
 		for(i = 0; args[i]!=NULL;i++){
 			printf("The command is: %s\n",args[i]);
@@ -132,39 +139,149 @@ int main(int argc, char *argv[], char *envp[]){
 			
 			if(!strcmp(args[i] , "|")) {
 
-				pipeSeen = 1;
+				pipe_seen = 1;			
+				pipe_location[pipe_num] = i;
+				pipe_num++;
+				
+			}
+		}
 
-				//code for piping the data
-				pipe(p);
-				if( fork() == 0) { // this is the child
-					close(stdout);
+		if(pipe_seen) {
+			pipe(p);
+			if(pipe_num==1) {
+				// first command
+				if( fork() == 0) {
+					close(1);
+					dup2( p[1], 1);
 					close(p[0]);
-					dup2( p[1], stdout);
-					if(execvp(args[--i], args)) {
+					for(i=0; i<pipe_location[0]; i++) {
+						executable[i] = args[i]; 
+					}
+					executable[i] = NULL;
+				
+					#ifdef DEBUG
+						for(i = 0; executable[i]!=NULL; i++) {
+							printf("The executable is: %s\n",executable[i]);
+						}
+					#endif
+
+					if(execvp(args[0], executable)) {
 						puts(strerror(errno));
 						exit(127);
 					}
 				}
 
-				wait(ret_status);				
-
-				if( fork() == 0) { // this is the child
-					close(stdin);
+				// second command
+				if( fork() == 0) {
+					close(0);
+					dup2(p[0], 0);
 					close(p[1]);
-					dup2( p[0], stdin);
-					if(execvp(args[++i], args)) {
+					j = 0;
+					for(i=(pipe_location[0]+1); args[i] != NULL; i++) {
+						executable[j] = args[i];
+						j++;
+					}
+					executable[j] = NULL;
+
+					#ifdef DEBUG
+						for(i = 0; executable[i]!=NULL; i++) {
+							printf("The executable is: %s\n",executable[i]);
+						}
+					#endif
+
+
+					if(execvp(executable[0], executable)) {
 						puts(strerror(errno));
 						exit(127);
 					}
 				}
 				close(p[0]);
 				close(p[1]);
-				
 				wait(ret_status);
+				wait(ret_status);
+			} else {//more than one pipe
+
+				//handle the first pipe
+				if( fork() == 0) {
+					close(1);	
+					dup2( p[1], 1);
+					close(p[0]);
+					for(i=0; i<pipe_location[0]; i++) {
+						executable[i] = args[i]; 
+					}
+					#ifdef DEBUG
+						for(i = 0; executable[i]!=NULL; i++) {
+							printf("The executable is: %s\n",executable[i]);
+						}
+					#endif
+
+					if(execvp(args[0], executable)) {
+						puts(strerror(errno));
+						exit(127);
+					}
+				}
+				// do the middle pipes
+				for( i = 1 ; i<pipe_num ; i++) {
+				
+					//code for piping the data
+					if( fork() == 0) { // this is the child
+						close(0);
+						close(1);
+						dup2( p[0], 0);
+						dup2( p[1], 1);
+						k=0;
+						// get the arguments
+						for(j=(pipe_location[i]+1) ; j<pipe_location[++i] ; j++) {
+							executable[k] = args[j];
+							k++;
+						}
+						#ifdef DEBUG
+							for(j = 0; executable[j]!=NULL; j++) {
+								printf("The executable is: %s\n",executable[j]);
+							}
+						#endif
+				
+						if(execvp(executable[0], executable)) {
+							puts(strerror(errno));
+							exit(127);
+						}
+					}
+				}
+
+				// do the last command
+				if( fork() == 0) { // this is the child
+					close(0);
+					dup2( p[0], 0);
+					close(p[1]);
+					k = 0;
+					// get the last command
+					for(j=pipe_location[i]+1 ; args[j] != NULL ; j++) {
+						executable[k] = args[j];
+						k++;
+					}
+					#ifdef DEBUG
+						for(i = 0; executable[i]!=NULL; i++) {
+							printf("The executable is: %s\n",executable[i]);
+						}
+					#endif
+
+					if(execvp(executable[0], executable)) {
+						puts(strerror(errno));
+						exit(127);
+					}
+				}
+				
+				close(p[0]);
+				close(p[1]);
+				
+				// wait for all the child processes to die
+				for(i=0; i<++pipe_num ; i++) {
+					wait(ret_status);
+				}	
 			} 
 				
-		}
-		if(!pipeSeen) {
+		}	
+		if(!pipe_seen) {
 			if( fork() == 0) { // this is the child
 			
 				if(execvp(args[0], args)) {
