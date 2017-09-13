@@ -110,13 +110,15 @@ int main(int argc, char *argv[], char *envp[]){
 	int *ret_status;
 	size_t nargs;
 	pid_t pid;
-	int p[2];
-	int p2[2];
 	int pipe_seen, i, j, k;
 	int pipe_num;
 	int pipe_location[8];
 
-	
+	struct single_pipe {
+		int my_pipe[2];
+		};
+
+	struct single_pipe array_of_pipes[8];
 
 	while(1){
 		printf("ee468>> "); /* Prompt */
@@ -141,19 +143,18 @@ int main(int argc, char *argv[], char *envp[]){
 
 				pipe_seen = 1;			
 				pipe_location[pipe_num] = i;
-				pipe_num++;
-				
+				pipe_num++;	
 			}
 		}
 
 		if(pipe_seen) {
-			pipe(p);
+			pipe(array_of_pipes[0].my_pipe);
 			if(pipe_num==1) {
 				// first command
 				if( fork() == 0) {
 					close(1);
-					dup2( p[1], 1);
-					close(p[0]);
+					dup2( array_of_pipes[0].my_pipe[1], 1);
+					close(array_of_pipes[0].my_pipe[0]);
 					for(i=0; i<pipe_location[0]; i++) {
 						executable[i] = args[i]; 
 					}
@@ -161,7 +162,7 @@ int main(int argc, char *argv[], char *envp[]){
 				
 					#ifdef DEBUG
 						for(i = 0; executable[i]!=NULL; i++) {
-							printf("The executable is: %s\n",executable[i]);
+							printf("The original executable is: %s\n",executable[i]);
 						}
 					#endif
 
@@ -174,8 +175,8 @@ int main(int argc, char *argv[], char *envp[]){
 				// second command
 				if( fork() == 0) {
 					close(0);
-					dup2(p[0], 0);
-					close(p[1]);
+					dup2(array_of_pipes[0].my_pipe[0], 0);
+					close(array_of_pipes[0].my_pipe[1]);
 					j = 0;
 					for(i=(pipe_location[0]+1); args[i] != NULL; i++) {
 						executable[j] = args[i];
@@ -185,7 +186,7 @@ int main(int argc, char *argv[], char *envp[]){
 
 					#ifdef DEBUG
 						for(i = 0; executable[i]!=NULL; i++) {
-							printf("The executable is: %s\n",executable[i]);
+							printf("The second executable is: %s\n",executable[i]);
 						}
 					#endif
 
@@ -195,49 +196,57 @@ int main(int argc, char *argv[], char *envp[]){
 						exit(127);
 					}
 				}
-				close(p[0]);
-				close(p[1]);
+				close(array_of_pipes[0].my_pipe[0]);
+				close(array_of_pipes[0].my_pipe[1]);
 				wait(ret_status);
 				wait(ret_status);
-			} else {//more than one pipe
-
+			} else if(pipe_num>1){//more than one pipe
+				pipe(array_of_pipes[0].my_pipe);
 				//handle the first pipe
 				if( fork() == 0) {
 					close(1);	
-					dup2( p[1], 1);
-					close(p[0]);
+					dup2( array_of_pipes[0].my_pipe[1], 1);
+					close(array_of_pipes[0].my_pipe[0]);
+					
 					for(i=0; i<pipe_location[0]; i++) {
-						executable[i] = args[i]; 
+						executable[i] = args[i];
 					}
+					executable[i] = NULL;
 					#ifdef DEBUG
 						for(i = 0; executable[i]!=NULL; i++) {
-							printf("The executable is: %s\n",executable[i]);
+							printf("The first executable is: %s\n",executable[i]);
 						}
 					#endif
 
-					if(execvp(args[0], executable)) {
+					if(execvp(executable[0], executable)) {
 						puts(strerror(errno));
 						exit(127);
 					}
 				}
+					
 				// do the middle pipes
 				for( i = 1 ; i<pipe_num ; i++) {
-				
+					pipe(array_of_pipes[i].my_pipe);
+					
 					//code for piping the data
 					if( fork() == 0) { // this is the child
 						close(0);
 						close(1);
-						dup2( p[0], 0);
-						dup2( p[1], 1);
+						dup2( array_of_pipes[i-1].my_pipe[0], 0);
+						dup2( array_of_pipes[i].my_pipe[1], 1);
+						close(array_of_pipes[i-1].my_pipe[1]);
+						close(array_of_pipes[i].my_pipe[0]);
+
 						k=0;
 						// get the arguments
-						for(j=(pipe_location[i]+1) ; j<pipe_location[++i] ; j++) {
+						for(j=(pipe_location[i]+1) ; j<pipe_location[i+1] ; j++) {
 							executable[k] = args[j];
 							k++;
 						}
+						executable[k]=NULL;
 						#ifdef DEBUG
 							for(j = 0; executable[j]!=NULL; j++) {
-								printf("The executable is: %s\n",executable[j]);
+								printf("The %d executable is: %s\n",j,executable[j]);
 							}
 						#endif
 				
@@ -246,22 +255,27 @@ int main(int argc, char *argv[], char *envp[]){
 							exit(127);
 						}
 					}
+				/*	
+					close(array_of_pipes[i-1].my_pipe[0]);
+					close(array_of_pipes[i-1].my_pipe[1]);
+				*/
 				}
 
 				// do the last command
 				if( fork() == 0) { // this is the child
 					close(0);
-					dup2( p[0], 0);
-					close(p[1]);
+					dup2( array_of_pipes[pipe_num-1].my_pipe[0], 0);
+					close(array_of_pipes[pipe_num-1].my_pipe[1]);
 					k = 0;
 					// get the last command
-					for(j=pipe_location[i]+1 ; args[j] != NULL ; j++) {
+					for(j=pipe_location[pipe_num-1]+1 ; args[j] != NULL ; j++) {
 						executable[k] = args[j];
 						k++;
 					}
+					executable[k] = NULL;
 					#ifdef DEBUG
 						for(i = 0; executable[i]!=NULL; i++) {
-							printf("The executable is: %s\n",executable[i]);
+							printf("The last executable is: %s\n",executable[i]);
 						}
 					#endif
 
@@ -270,14 +284,28 @@ int main(int argc, char *argv[], char *envp[]){
 						exit(127);
 					}
 				}
+	
+				// close all the pipes used
+				for( k = 0; i<pipe_num ; i++){	
+					close(array_of_pipes[i].my_pipe[0]);
+					close(array_of_pipes[i].my_pipe[1]);
+				}
+
+
+/*
+				close(array_of_pipes[0].my_pipe[0]);
+				close(array_of_pipes[0].my_pipe[1]);
+				close(array_of_pipes[pipe_num-1].my_pipe[1]);
+				close(array_of_pipes[pipe_num-1].my_pipe[0]);
+*/
 				
-				close(p[0]);
-				close(p[1]);
-				
-				// wait for all the child processes to die
-				for(i=0; i<++pipe_num ; i++) {
+				waitpid(-1, NULL, 0);
+/*
+				// wait for all children to die
+				for( i = 0 ; i<pipe_num+1 ; i++) {
 					wait(ret_status);
-				}	
+				}
+*/
 			} 
 				
 		}	
